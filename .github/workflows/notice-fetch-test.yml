@@ -1,0 +1,53 @@
+name: CJ notice access test
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: GET both notices without proxy or authentication
+        shell: python
+        run: |
+          import json
+          import urllib.error
+          import urllib.request
+          import uuid
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          all_ok = True
+          for board_idx in (2156, 2160):
+              url = f"https://front.cjfreshmeal.co.kr/notice/v1/notice-detail?boardIdx={board_idx}"
+              print(f"NOTICE {board_idx}: {url}", flush=True)
+              try:
+                  with opener.open(url, timeout=20) as response:
+                      code = response.status
+                      raw = response.read()
+                      charset = response.headers.get_content_charset() or "utf-8"
+              except urllib.error.HTTPError as error:
+                  code = error.code
+                  raw = error.read()
+                  charset = error.headers.get_content_charset() or "utf-8"
+              except Exception as error:
+                  print(f"NETWORK_ERROR: {type(error).__name__}: {error}", flush=True)
+                  all_ok = False
+                  continue
+              print(f"HTTP_STATUS {board_idx}: {code}", flush=True)
+              marker = uuid.uuid4().hex
+              print(f"::stop-commands::{marker}", flush=True)
+              print(raw.decode(charset, errors="replace"), flush=True)
+              print(f"::{marker}::", flush=True)
+              if code != 200:
+                  all_ok = False
+                  continue
+              try:
+                  payload = json.loads(raw)
+                  data = payload.get("data") or {}
+                  valid = payload.get("retCode") == "00" and data.get("boardIdx") == board_idx and bool(data.get("fileNm"))
+                  print(f"JSON_VERIFIED {board_idx}: {valid}", flush=True)
+                  all_ok = all_ok and valid
+              except Exception as error:
+                  print(f"JSON_ERROR: {type(error).__name__}: {error}", flush=True)
+                  all_ok = False
+          if not all_ok:
+              raise SystemExit(1)
